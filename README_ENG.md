@@ -118,6 +118,43 @@ pm.expect(data.status).to.be.oneOf(['PENDING','COMPLETED','CANCELLED','COMPENSAT
 pm.expect(data.answer).to.be.a('string').and.not.empty;
 ```
 
+## API Testing with Postman
+
+The repository includes **two independent Postman collections** for successful and failure scenarios. Keep them in the `postman/` directory:
+
+- [Positive test collection](postman/Saga-Order-AI-TEST-POSITIVI.postman_collection.json)
+- [Negative test collection](postman/Saga-Order-AI-TEST-NEGATIVI.postman_collection.json)
+- [Postman testing guide (Italian)](postman/GUIDA-POSTMAN-IT.md)
+
+### Import and execution
+
+1. Start Docker Compose services and Ollama, then launch `assistant-service` as described above.
+2. In Postman, select **Import** and import both `.postman_collection.json` files.
+3. Review collection variables (service base URLs and order IDs) and adapt them to your local environment.
+4. Use the **Collection Runner** to execute the **positive collection first**, followed by the **negative collection**.
+5. Review HTTP status codes, JSON assertions, saved order IDs, and any failed tests.
+
+### Expected outcomes
+
+| Suite | Scenario | Expected result |
+| --- | --- | --- |
+| Positive | Create order (`failAt: none`) | HTTP 201; `COMPLETED` |
+| Positive | Retrieve a completed order | HTTP 200; `COMPLETED` |
+| Positive | Payment, inventory, shipping checks | Successful responses and active resources |
+| Positive | Ask the AI assistant about an existing order | Successful response containing an explanation |
+| Negative | Simulated payment failure | Order created; Saga status `CANCELLED` |
+| Negative | Simulated inventory failure | Order created; Saga status `CANCELLED` |
+| Negative | Simulated shipping failure | Order created; Saga status `CANCELLED` |
+| Negative | Invalid input / missing resources | Appropriate client error (depending on endpoint) |
+
+**Important:** an intentionally failed Saga can still return **HTTP 201** for order creation; assert the business status `CANCELLED` rather than treating the HTTP response as a failed request.
+
+### Database and Kafka verification
+
+After running the collections, inspect PostgreSQL for order state, compensating operations, and `outbox_events` publication status. Check Kafka's `saga-order-events` topic for the corresponding completion/cancellation events. Refer to the detailed commands in the operations checklist and the Postman guide.
+
+The collections are integration tests: results depend on running services, database state, Ollama availability, and the selected model. Never commit real credentials, access tokens, or sensitive environment values.
+
 ## How the AI agent works
 
 Il controller `OrderAssistantController` costruisce un `ChatClient` Spring AI e passa al modello una richiesta in italiano. Espone il metodo Java `OrderTool.getOrderStatus()` tramite `@Tool`: è il **tool calling**, cioè il modello può richiedere un'operazione applicativa definita dal programmatore. Il tool effettua `GET /orders/{id}` con `RestClient`, in read-only. L'UUID è vincolato alla richiesta HTTP, non è scelto dal modello; il risultato viene memorizzato per evitare letture ripetute nella stessa richiesta. Il modello genera una spiegazione di massimo quattro frasi, ma `status` e `simulatedFailureStep` sono restituiti dal backend sulla base dei dati del servizio ordini, non estratti dal testo generato.
