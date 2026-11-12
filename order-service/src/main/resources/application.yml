@@ -1,0 +1,27 @@
+server:
+  port: 8081
+spring:
+  application:
+    name: order-service
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/orderdb}
+    username: ${DB_USER:saga}
+    password: ${DB_PASSWORD:saga}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: true
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9092}
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+services:
+  payment: ${PAYMENT_URL:http://localhost:8082}
+  inventory: ${INVENTORY_URL:http://localhost:8083}
+  shipping: ${SHIPPING_URL:http://localhost:8084}
