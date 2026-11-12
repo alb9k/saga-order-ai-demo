@@ -1,0 +1,709 @@
+{
+  "info": {
+    "name": "Saga Order AI - TEST NEGATIVI",
+    "_postman_id": "f9c1a79b-3cf1-47d8-bb72-000000000002",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Suite basata sui controller Java del progetto. Eseguire in ordine. Le richieste AI richiedono Ollama attivo e tool calling funzionante."
+  },
+  "variable": [
+    {
+      "key": "orderBase",
+      "value": "http://localhost:8081"
+    },
+    {
+      "key": "paymentBase",
+      "value": "http://localhost:8082"
+    },
+    {
+      "key": "inventoryBase",
+      "value": "http://localhost:8083"
+    },
+    {
+      "key": "shippingBase",
+      "value": "http://localhost:8084"
+    },
+    {
+      "key": "assistantBase",
+      "value": "http://localhost:8090"
+    },
+    {
+      "key": "orderId_success",
+      "value": ""
+    },
+    {
+      "key": "orderId_payment",
+      "value": ""
+    },
+    {
+      "key": "orderId_inventory",
+      "value": ""
+    },
+    {
+      "key": "orderId_shipping",
+      "value": ""
+    },
+    {
+      "key": "missingId",
+      "value": "00000000-0000-4000-8000-000000000001"
+    },
+    {
+      "key": "invalidId",
+      "value": "not-a-uuid"
+    },
+    {
+      "key": "directPaymentId",
+      "value": ""
+    },
+    {
+      "key": "directInventoryId",
+      "value": ""
+    },
+    {
+      "key": "directShippingId",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "01 - Input non validi e risorse assenti",
+      "item": [
+        {
+          "name": "failAt non supportato -> 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{orderBase}}/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"failAt\": \"unknown\"}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 400\", () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ordine UUID inesistente -> 404",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{orderBase}}/orders/{{missingId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 404\", () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ordine ID non UUID -> 400",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{orderBase}}/orders/{{invalidId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 400\", () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Pagamento inesistente -> 404",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{paymentBase}}/internal/payment/{{missingId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 404\", () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Magazzino inesistente -> 404",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{inventoryBase}}/internal/inventory/{{missingId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 404\", () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Spedizione inesistente -> 404",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{shippingBase}}/internal/shipping/{{missingId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 404\", () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Assistente AI ID non UUID -> 400",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{assistantBase}}/assistant/orders/{{invalidId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 400\", () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02 - PAYMENT errore 422 e conflitto 409",
+      "item": [
+        {
+          "name": "Fallimento simulato -> 422",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{paymentBase}}/internal/payment/{{directPaymentId}}/authorize?fail=true"
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set(\"directPaymentId\", pm.variables.replaceIn(\"{$guid}\"));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 422\", () => pm.response.to.have.status(422));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Creazione corretta per preparare compensazione -> 200",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{paymentBase}}/internal/payment/{{directPaymentId}}/authorize"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Compensazione -> 200",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{paymentBase}}/internal/payment/{{directPaymentId}}/void"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ripetizione dopo compensazione -> 409",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{paymentBase}}/internal/payment/{{directPaymentId}}/authorize"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 409\", () => pm.response.to.have.status(409));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Verifica stato CANCELLED",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{paymentBase}}/internal/payment/{{directPaymentId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const d=pm.response.json();pm.test(\"Stato risorsa CANCELLED\",()=>pm.expect(d.status).to.eql(\"CANCELLED\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02 - INVENTORY errore 422 e conflitto 409",
+      "item": [
+        {
+          "name": "Fallimento simulato -> 422",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{inventoryBase}}/internal/inventory/{{directInventoryId}}/reserve?fail=true"
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set(\"directInventoryId\", pm.variables.replaceIn(\"{$guid}\"));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 422\", () => pm.response.to.have.status(422));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Creazione corretta per preparare compensazione -> 200",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{inventoryBase}}/internal/inventory/{{directInventoryId}}/reserve"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Compensazione -> 200",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{inventoryBase}}/internal/inventory/{{directInventoryId}}/release"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ripetizione dopo compensazione -> 409",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{inventoryBase}}/internal/inventory/{{directInventoryId}}/reserve"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 409\", () => pm.response.to.have.status(409));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Verifica stato CANCELLED",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{inventoryBase}}/internal/inventory/{{directInventoryId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const d=pm.response.json();pm.test(\"Stato risorsa CANCELLED\",()=>pm.expect(d.status).to.eql(\"CANCELLED\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02 - SHIPPING errore 422 e conflitto 409",
+      "item": [
+        {
+          "name": "Fallimento simulato -> 422",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{shippingBase}}/internal/shipping/{{directShippingId}}/create?fail=true"
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set(\"directShippingId\", pm.variables.replaceIn(\"{$guid}\"));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 422\", () => pm.response.to.have.status(422));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Creazione corretta per preparare compensazione -> 200",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{shippingBase}}/internal/shipping/{{directShippingId}}/create"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Compensazione -> 200",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{shippingBase}}/internal/shipping/{{directShippingId}}/cancel"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ripetizione dopo compensazione -> 409",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{shippingBase}}/internal/shipping/{{directShippingId}}/create"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 409\", () => pm.response.to.have.status(409));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Verifica stato CANCELLED",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{shippingBase}}/internal/shipping/{{directShippingId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const d=pm.response.json();pm.test(\"Stato risorsa CANCELLED\",()=>pm.expect(d.status).to.eql(\"CANCELLED\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "03 - Saga fallite: risultato HTTP positivo ma business negativo",
+      "item": [
+        {
+          "name": "Guasto pagamento -> CANCELLED",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{orderBase}}/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"failAt\": \"payment\"}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "const d=pm.response.json();",
+                  "pm.test(\"ID UUID\",()=>pm.expect(d.id).to.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i));",
+                  "pm.test(\"Stato CANCELLED\",()=>pm.expect(d.status).to.eql(\"CANCELLED\"));",
+                  "pm.test(\"failureStep payment\",()=>pm.expect(d.failureStep).to.eql(\"payment\"));",
+                  "if(d.id && d.status===\"CANCELLED\")pm.collectionVariables.set(\"orderId_payment\",d.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Guasto magazzino -> CANCELLED",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{orderBase}}/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"failAt\": \"inventory\"}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "const d=pm.response.json();",
+                  "pm.test(\"ID UUID\",()=>pm.expect(d.id).to.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i));",
+                  "pm.test(\"Stato CANCELLED\",()=>pm.expect(d.status).to.eql(\"CANCELLED\"));",
+                  "pm.test(\"failureStep inventory\",()=>pm.expect(d.failureStep).to.eql(\"inventory\"));",
+                  "if(d.id && d.status===\"CANCELLED\")pm.collectionVariables.set(\"orderId_inventory\",d.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Guasto spedizione -> CANCELLED",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{orderBase}}/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"failAt\": \"shipping\"}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "const d=pm.response.json();",
+                  "pm.test(\"ID UUID\",()=>pm.expect(d.id).to.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i));",
+                  "pm.test(\"Stato CANCELLED\",()=>pm.expect(d.status).to.eql(\"CANCELLED\"));",
+                  "pm.test(\"failureStep shipping\",()=>pm.expect(d.failureStep).to.eql(\"shipping\"));",
+                  "if(d.id && d.status===\"CANCELLED\")pm.collectionVariables.set(\"orderId_shipping\",d.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Pagamento compensato dopo guasto magazzino",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{paymentBase}}/internal/payment/{{orderId_inventory}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const d=pm.response.json();pm.test(\"Stato risorsa CANCELLED\",()=>pm.expect(d.status).to.eql(\"CANCELLED\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Pagamento compensato dopo guasto spedizione",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{paymentBase}}/internal/payment/{{orderId_shipping}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const d=pm.response.json();pm.test(\"Stato risorsa CANCELLED\",()=>pm.expect(d.status).to.eql(\"CANCELLED\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Magazzino compensato dopo guasto spedizione",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{inventoryBase}}/internal/inventory/{{orderId_shipping}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const d=pm.response.json();pm.test(\"Stato risorsa CANCELLED\",()=>pm.expect(d.status).to.eql(\"CANCELLED\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

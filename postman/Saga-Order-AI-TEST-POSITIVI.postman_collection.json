@@ -1,0 +1,502 @@
+{
+  "info": {
+    "name": "Saga Order AI - TEST POSITIVI",
+    "_postman_id": "f9c1a79b-3cf1-47d8-bb72-000000000001",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Suite basata sui controller Java del progetto. Eseguire in ordine. Le richieste AI richiedono Ollama attivo e tool calling funzionante."
+  },
+  "variable": [
+    {
+      "key": "orderBase",
+      "value": "http://localhost:8081"
+    },
+    {
+      "key": "paymentBase",
+      "value": "http://localhost:8082"
+    },
+    {
+      "key": "inventoryBase",
+      "value": "http://localhost:8083"
+    },
+    {
+      "key": "shippingBase",
+      "value": "http://localhost:8084"
+    },
+    {
+      "key": "assistantBase",
+      "value": "http://localhost:8090"
+    },
+    {
+      "key": "orderId_success",
+      "value": ""
+    },
+    {
+      "key": "orderId_payment",
+      "value": ""
+    },
+    {
+      "key": "orderId_inventory",
+      "value": ""
+    },
+    {
+      "key": "orderId_shipping",
+      "value": ""
+    },
+    {
+      "key": "missingId",
+      "value": "00000000-0000-4000-8000-000000000001"
+    },
+    {
+      "key": "invalidId",
+      "value": "not-a-uuid"
+    },
+    {
+      "key": "directPaymentId",
+      "value": ""
+    },
+    {
+      "key": "directInventoryId",
+      "value": ""
+    },
+    {
+      "key": "directShippingId",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "01 - Saga completata",
+      "item": [
+        {
+          "name": "Crea ordine COMPLETED",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{orderBase}}/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"failAt\": \"none\"}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "const d=pm.response.json();",
+                  "pm.test(\"ID UUID\",()=>pm.expect(d.id).to.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i));",
+                  "pm.test(\"Stato COMPLETED\",()=>pm.expect(d.status).to.eql(\"COMPLETED\"));",
+                  "pm.test(\"failureStep none\",()=>pm.expect(d.failureStep).to.eql(\"none\"));",
+                  "if(d.id && d.status===\"COMPLETED\")pm.collectionVariables.set(\"orderId_success\",d.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Leggi ordine COMPLETED",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{orderBase}}/orders/{{orderId_success}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const d=pm.response.json();pm.test(\"ID coerente\",()=>pm.expect(d.id).to.eql(pm.collectionVariables.get(\"orderId_success\")));pm.test(\"Stato COMPLETED\",()=>pm.expect(d.status).to.eql(\"COMPLETED\"));pm.test(\"Failure step\",()=>pm.expect(d.failureStep).to.eql(\"none\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Pagamento ACTIVE",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{paymentBase}}/internal/payment/{{orderId_success}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const d=pm.response.json();pm.test(\"Stato risorsa ACTIVE\",()=>pm.expect(d.status).to.eql(\"ACTIVE\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Magazzino ACTIVE",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{inventoryBase}}/internal/inventory/{{orderId_success}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const d=pm.response.json();pm.test(\"Stato risorsa ACTIVE\",()=>pm.expect(d.status).to.eql(\"ACTIVE\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Spedizione ACTIVE",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{shippingBase}}/internal/shipping/{{orderId_success}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const d=pm.response.json();pm.test(\"Stato risorsa ACTIVE\",()=>pm.expect(d.status).to.eql(\"ACTIVE\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Assistente AI: ordine completato",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{assistantBase}}/assistant/orders/{{orderId_success}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const d=pm.response.json();pm.test(\"ID coerente\",()=>pm.expect(d.orderId).to.eql(pm.collectionVariables.get(\"orderId_success\")));pm.test(\"Stato\",()=>pm.expect(d.status).to.eql(\"COMPLETED\"));pm.test(\"Step simulato\",()=>pm.expect(d.simulatedFailureStep).to.be.oneOf([null, \"none\"]));pm.test(\"Risposta AI non vuota\",()=>pm.expect(d.answer).to.be.a(\"string\").and.not.empty);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02 - Controllo stato saga PAYMENT",
+      "item": [
+        {
+          "name": "Crea ordine con guasto simulato payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{orderBase}}/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"failAt\": \"payment\"}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "const d=pm.response.json();",
+                  "pm.test(\"ID UUID\",()=>pm.expect(d.id).to.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i));",
+                  "pm.test(\"Stato CANCELLED\",()=>pm.expect(d.status).to.eql(\"CANCELLED\"));",
+                  "pm.test(\"failureStep payment\",()=>pm.expect(d.failureStep).to.eql(\"payment\"));",
+                  "if(d.id && d.status===\"CANCELLED\")pm.collectionVariables.set(\"orderId_payment\",d.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Leggi ordine annullato",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{orderBase}}/orders/{{orderId_payment}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const d=pm.response.json();pm.test(\"ID coerente\",()=>pm.expect(d.id).to.eql(pm.collectionVariables.get(\"orderId_payment\")));pm.test(\"Stato CANCELLED\",()=>pm.expect(d.status).to.eql(\"CANCELLED\"));pm.test(\"Failure step\",()=>pm.expect(d.failureStep).to.eql(\"payment\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Assistente AI: annullamento",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{assistantBase}}/assistant/orders/{{orderId_payment}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const d=pm.response.json();pm.test(\"ID coerente\",()=>pm.expect(d.orderId).to.eql(pm.collectionVariables.get(\"orderId_payment\")));pm.test(\"Stato\",()=>pm.expect(d.status).to.eql(\"CANCELLED\"));pm.test(\"Step simulato\",()=>pm.expect(d.simulatedFailureStep).to.eql(\"payment\"));pm.test(\"Risposta AI non vuota\",()=>pm.expect(d.answer).to.be.a(\"string\").and.not.empty);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02 - Controllo stato saga INVENTORY",
+      "item": [
+        {
+          "name": "Crea ordine con guasto simulato inventory",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{orderBase}}/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"failAt\": \"inventory\"}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "const d=pm.response.json();",
+                  "pm.test(\"ID UUID\",()=>pm.expect(d.id).to.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i));",
+                  "pm.test(\"Stato CANCELLED\",()=>pm.expect(d.status).to.eql(\"CANCELLED\"));",
+                  "pm.test(\"failureStep inventory\",()=>pm.expect(d.failureStep).to.eql(\"inventory\"));",
+                  "if(d.id && d.status===\"CANCELLED\")pm.collectionVariables.set(\"orderId_inventory\",d.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Leggi ordine annullato",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{orderBase}}/orders/{{orderId_inventory}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const d=pm.response.json();pm.test(\"ID coerente\",()=>pm.expect(d.id).to.eql(pm.collectionVariables.get(\"orderId_inventory\")));pm.test(\"Stato CANCELLED\",()=>pm.expect(d.status).to.eql(\"CANCELLED\"));pm.test(\"Failure step\",()=>pm.expect(d.failureStep).to.eql(\"inventory\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Assistente AI: annullamento",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{assistantBase}}/assistant/orders/{{orderId_inventory}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const d=pm.response.json();pm.test(\"ID coerente\",()=>pm.expect(d.orderId).to.eql(pm.collectionVariables.get(\"orderId_inventory\")));pm.test(\"Stato\",()=>pm.expect(d.status).to.eql(\"CANCELLED\"));pm.test(\"Step simulato\",()=>pm.expect(d.simulatedFailureStep).to.eql(\"inventory\"));pm.test(\"Risposta AI non vuota\",()=>pm.expect(d.answer).to.be.a(\"string\").and.not.empty);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02 - Controllo stato saga SHIPPING",
+      "item": [
+        {
+          "name": "Crea ordine con guasto simulato shipping",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{orderBase}}/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"failAt\": \"shipping\"}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "const d=pm.response.json();",
+                  "pm.test(\"ID UUID\",()=>pm.expect(d.id).to.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i));",
+                  "pm.test(\"Stato CANCELLED\",()=>pm.expect(d.status).to.eql(\"CANCELLED\"));",
+                  "pm.test(\"failureStep shipping\",()=>pm.expect(d.failureStep).to.eql(\"shipping\"));",
+                  "if(d.id && d.status===\"CANCELLED\")pm.collectionVariables.set(\"orderId_shipping\",d.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Leggi ordine annullato",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{orderBase}}/orders/{{orderId_shipping}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const d=pm.response.json();pm.test(\"ID coerente\",()=>pm.expect(d.id).to.eql(pm.collectionVariables.get(\"orderId_shipping\")));pm.test(\"Stato CANCELLED\",()=>pm.expect(d.status).to.eql(\"CANCELLED\"));pm.test(\"Failure step\",()=>pm.expect(d.failureStep).to.eql(\"shipping\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Assistente AI: annullamento",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{assistantBase}}/assistant/orders/{{orderId_shipping}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const d=pm.response.json();pm.test(\"ID coerente\",()=>pm.expect(d.orderId).to.eql(pm.collectionVariables.get(\"orderId_shipping\")));pm.test(\"Stato\",()=>pm.expect(d.status).to.eql(\"CANCELLED\"));pm.test(\"Step simulato\",()=>pm.expect(d.simulatedFailureStep).to.eql(\"shipping\"));pm.test(\"Risposta AI non vuota\",()=>pm.expect(d.answer).to.be.a(\"string\").and.not.empty);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "03 - Endpoint interni: idempotenza su ordine COMPLETED",
+      "item": [
+        {
+          "name": "Pagamento authorize ripetuto",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{paymentBase}}/internal/payment/{{orderId_success}}/authorize"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Magazzino reserve ripetuto",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{inventoryBase}}/internal/inventory/{{orderId_success}}/reserve"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Spedizione create ripetuto",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{shippingBase}}/internal/shipping/{{orderId_success}}/create"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
