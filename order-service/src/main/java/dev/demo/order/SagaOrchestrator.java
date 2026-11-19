@@ -24,6 +24,8 @@ public class SagaOrchestrator {
         List<String> completed=new ArrayList<>();
         String finalStatus;
         String details;
+        // Each step is a remote HTTP call to another service.
+        // If any step fails, we compensate the completed steps in reverse order.
         try {
             step(payment,"payment","authorize",id,order.failureStep);
             completed.add("payment");
