@@ -28,33 +28,42 @@ order-service :8081 --> payment :8082 --> inventory :8083 --> shipping :8084
 
 macOS/Linux, JDK 21, Maven 3.9+, Docker Desktop/Compose, `curl` e **Ollama** installed. Ensure ports 8081–8084, 8090, 5432, 9092 and 11434 are available. The assistant runs on the host; it is **not** part of `docker-compose.yml`.
 
-## Getting started
+## Getting started — verified startup procedure (November 20, 2026)
 
-From the project root:
+> **Critical:** the Saga Dockerfiles contain `COPY target/*.jar app.jar`. Build the Maven JARs **before** Docker image creation. This resolves `lstat /target: no such file or directory`.
+
+**Terminal 1 — Ollama on the host:**
 
 ```bash
-# 1. Start Ollama (unless already running)
-ollama serve
+curl -fsS http://localhost:11434/api/tags
+ollama list
+ollama pull qwen2.5:3b
 ```
 
-In a **second terminal**:
+If `/api/tags` fails, start `ollama serve` in a dedicated terminal (or start the Ollama app). If `ollama serve` reports `bind: address already in use` **and** `/api/tags` works, Ollama is already running: do not start a duplicate instance.
+
+**Terminal 2 — project root:**
 
 ```bash
-# 2. Download the configured model (first run only)
-ollama pull qwen2.5:3b
-ollama list
-
-# 3. Build and start the four microservices and infrastructure
-mvn clean package
+mvn clean package -DskipTests
+find . -path '*/target/*.jar' -type f
+docker compose config
 docker compose up --build -d
 docker compose ps
-curl --fail-with-body http://localhost:8081/actuator/health
+curl -i http://localhost:8081/actuator/health
+```
 
-# 4. Run the AI assistant locally
+Wait for HTTP 200 and `{"status":"UP"}`. `Up` in Compose does not by itself guarantee application readiness. `-DskipTests` speeds up local startup; it is **not** a replacement for running tests before commits or releases.
+
+**Terminal 3 — Spring AI assistant on the host:**
+
+```bash
 mvn -pl assistant-service spring-boot:run
 ```
 
-If Ollama is already running as an app/service, do not start a second `ollama serve`. Wait until `order-service` health returns `UP`. In IntelliJ, run `dev.demo.assistant.AssistantApplication` using JDK 21.
+Wait for `Tomcat started on port 8090`; keep this terminal open. The assistant is **not** in Docker Compose. Alternatively launch `dev.demo.assistant.AssistantApplication` from IntelliJ with JDK 21.
+
+**macOS zsh:** if pasting lines starting with `#` causes `zsh: command not found: #`, `unknown sort specifier` or `unknown file attribute`, run `setopt interactivecomments` or paste only commands. Persist with `echo 'setopt interactivecomments' >> ~/.zshrc`.
 
 ## REST tests with curl
 
@@ -93,7 +102,7 @@ Create the following requests in one collection:
 
 | Request | Method | URL | Body / expected result |
 |---|---|---|---|
-| Successful order | POST | `http://localhost:8081/orders` | JSON `{"failAt":"none"}` → 201, `COMPLETED` |
+| Successful order | POST | `http://localhost:8081/orders` | JSON `{"failAt":"none"}` → 201; verify `COMPLETED` via GET |
 | Payment failure | POST | `http://localhost:8081/orders` | JSON `{"failAt":"payment"}` → 201, `CANCELLED` if compensated |
 | Inventory failure | POST | `http://localhost:8081/orders` | JSON `{"failAt":"inventory"}` → 201, `CANCELLED` if compensated |
 | Shipping failure | POST | `http://localhost:8081/orders` | JSON `{"failAt":"shipping"}` → 201, `CANCELLED` if compensated |
@@ -212,11 +221,185 @@ Stop `assistant-service` with **Ctrl+C**, then:
 
 ```bash
 docker compose down
-# WARNING: also deletes persisted database data
+```
+
+**Only if you intentionally want to delete PostgreSQL data as well:**
+
+```bash
 docker compose down -v
 ```
 
 If you started `ollama serve` manually, stop it with Ctrl+C in that terminal.
+
+
+## Quick restart, rebuild and troubleshooting additions (November 20, 2026)
+
+| Situation | Action |
+|---|---|
+| Restart without source changes | `docker compose up -d`; start the assistant separately if needed |
+| Changes to Dockerized service code | `mvn clean package -DskipTests`, then `docker compose up --build -d` |
+| First build on a new machine | Build Maven JARs **before** `docker compose up --build -d` |
+| Verify JAR artifacts | `find . -path '*/target/*.jar' -type f` |
+| `COPY target/*.jar` still fails after Maven succeeds | Inspect `build:` paths in `docker-compose.yml`, `target/` directories and `.dockerignore` |
+| Empty `docker compose ps` | Ensure Docker Desktop is running and run `docker compose up -d` from project root |
+
+**Safe shutdown:** stop assistant with Ctrl+C, then `docker compose down` to preserve PostgreSQL volumes. **Avoid `docker compose down -v`** unless intentionally deleting persisted data. Ollama is separate from Docker Compose.
+
+
+## Deep-dive: repository, runtime, API contracts and verification
+
+### 1. Repository structure
+
+```text
+saga-order-ai-demo/
+├── pom.xml                       # Maven reactor
+├── docker-compose.yml            # PostgreSQL, Kafka, four Saga services
+├── infra/init.sql                # database initialization
+├── order-service/                # orchestration, orders and outbox
+├── payment-service/              # payment and compensation
+├── inventory-service/            # stock and compensation
+├── shipping-service/             # shipping and compensation
+├── assistant-service/            # Spring AI / Ollama integration
+└── postman/                      # collections and testing guide
+```
+
+Each Java module produces a `target/<module>-1.0.0.jar`. Build from the reactor root before Docker images. The assistant runs on the host, so `localhost:8081` reaches Docker's published order-service port. If the assistant were containerized, `localhost` would instead refer to its own container.
+
+### 2. Saga lifecycle
+
+1. `POST /orders` validates `failAt` (`none`, `payment`, `inventory`, `shipping`), otherwise returns HTTP 400.
+2. `order-service` persists a UUID-based order and starts orchestration.
+3. The orchestrator calls payment, inventory and shipping synchronously via HTTP.
+4. Success produces `COMPLETED`. A simulated failure triggers applicable reverse-order compensations.
+5. Successful compensation produces `CANCELLED`; compensation errors can produce `COMPENSATION_FAILED`.
+6. A scheduled outbox publisher sends recorded outcome events to Kafka; consumers must handle duplicate delivery.
+
+Kafka publishes outcomes; it is **not** the transport for Saga commands in this demo.
+
+### 3. REST contract and negative cases
+
+| Method | Endpoint | Purpose | Expected |
+|---|---|---|---|
+| POST | `/orders` | `{"failAt":"none"}` | 201 + order JSON containing `id` |
+| POST | `/orders` | `payment`, `inventory`, `shipping` failure | 201; final Saga state depends on execution |
+| POST | `/orders` | `{"failAt":"invalid"}` | 400 |
+| GET | `/orders/{uuid}` | existing order | 200 + order JSON |
+| GET | `/orders/{uuid}` | valid unknown UUID | 404 |
+| GET | `/orders/non-uuid` | malformed UUID | typically 400 |
+| GET | `/assistant/orders/{uuid}` | explain an existing order | 200 + `orderId`, `status`, `simulatedFailureStep`, `answer` |
+| GET | `/assistant/orders/{uuid}` | unknown order | 404 if tool successfully checks it |
+| GET | `/assistant/orders/{uuid}` | model/tool/order unavailable or empty AI answer | 502 |
+
+`POST /orders` also accepts a missing body and defaults `failAt` to `none` (`@RequestBody(required=false)`). A Saga business failure is not the same as an HTTP failure. The assistant's tool invocation happens **inside the model call**, so an AI error can produce 502 even when the order exists.
+
+```bash
+curl -i -X POST http://localhost:8081/orders \
+  -H 'Content-Type: application/json' -d '{"failAt":"invalid"}'
+curl -i http://localhost:8081/orders/non-uuid
+curl -i http://localhost:8081/orders/00000000-0000-0000-0000-000000000000
+```
+
+### 4. Spring AI and actual tool calling
+
+`OrderAssistantController` builds a `ChatClient` with a system instruction to explain order status **in Italian, within four sentences**. It exposes `OrderTool.getOrderStatus()` through `@Tool`. The tool uses a read-only `RestClient` GET to `/orders/{id}`.
+
+The UUID is bound to the HTTP path, **not selected by the model**. The tool caches its result for the duration of the request. The backend validates allowed states (`PENDING`, `COMPLETED`, `CANCELLED`, `COMPENSATION_FAILED`) and normalizes `simulatedFailureStep` to `payment`, `inventory`, `shipping` or `null`.
+
+The structured `status` and `simulatedFailureStep` fields come from the backend; **only `answer` is generated text**. The system prompt forbids invented refunds, shipping details or causes. If the model fails or the tool cannot supply a usable result, the endpoint reports an error instead of fabricating data.
+
+The order-service `RestClient` has code-level connect/read timeouts of 2/3 seconds, separate from Spring's configured HTTP client timeouts. First-model load and inference can be slower than the service calls.
+
+### 5. Postman test design
+
+Collection variables: `baseUrl`, `assistantUrl`, `orderId`. Optionally use separate IDs for each scenario (`completedOrderId`, `paymentFailedOrderId`, `inventoryFailedOrderId`, `shippingFailedOrderId`). Run each POST before its dependent GET requests.
+
+Successful POST → **Scripts → Post-response**:
+
+```javascript
+pm.test("Create: HTTP 201", () => pm.response.to.have.status(201));
+const data = pm.response.json();
+pm.test("UUID returned", () => pm.expect(data.id).to.be.a("string").and.not.empty);
+pm.collectionVariables.set("orderId", data.id);
+pm.collectionVariables.set("completedOrderId", data.id);
+```
+
+Order GET:
+
+```javascript
+pm.test("Read: HTTP 200", () => pm.response.to.have.status(200));
+const data = pm.response.json();
+pm.test("Matching ID", () => pm.expect(data.id).to.eql(pm.collectionVariables.get("orderId")));
+pm.test("Valid status", () => pm.expect(data.status).to.be.oneOf(
+  ["PENDING", "COMPLETED", "CANCELLED", "COMPENSATION_FAILED"]
+));
+```
+
+Assistant GET:
+
+```javascript
+pm.test("Assistant: HTTP 200", () => pm.response.to.have.status(200));
+const data = pm.response.json();
+pm.test("Matching UUID", () => pm.expect(data.orderId).to.eql(pm.collectionVariables.get("orderId")));
+pm.test("Non-empty answer", () => pm.expect(data.answer).to.be.a("string").and.not.empty);
+pm.test("Valid status", () => pm.expect(data.status).to.be.oneOf(
+  ["PENDING", "COMPLETED", "CANCELLED", "COMPENSATION_FAILED"]
+));
+```
+
+Invalid input POST (`{"failAt":"invalid"}`):
+
+```javascript
+pm.test("Invalid input: HTTP 400", () => pm.response.to.have.status(400));
+```
+
+Check Saga state with the order GET before testing the assistant. Configure Collection Runner request order explicitly. Error responses are not guaranteed to contain JSON.
+
+### 6. PostgreSQL and DBeaver
+
+Use a PostgreSQL driver with host `localhost`, port `5432`, username `saga`, password `saga` (demo-only credentials). Choose `orderdb`, `paymentdb`, `inventorydb`, or `shippingdb`. Use separate connections or switch databases as needed. Refresh table metadata after tests; DBeaver's navigator and active editor do not necessarily synchronize automatically.
+
+```sql
+SELECT status, COUNT(*) FROM orders GROUP BY status ORDER BY status;
+SELECT id, aggregate_id, event_type, created_at, published_at
+FROM outbox_events ORDER BY created_at DESC LIMIT 20;
+SELECT COUNT(*) AS unpublished
+FROM outbox_events WHERE published_at IS NULL;
+```
+
+Avoid manually deleting or rewriting Saga/outbox rows during integration tests: this can invalidate state consistency.
+
+### 7. Diagnostic decision path
+
+1. **Docker**: `docker compose ps` — all containers Up, PostgreSQL healthy.
+2. **HTTP**: `curl -i http://localhost:8081/actuator/health` — 200 / UP.
+3. **PostgreSQL**: `docker compose exec -T postgres pg_isready -U saga`.
+4. **Kafka**: list topics and inspect logs inside the broker container.
+5. **Ollama**: `curl -fsS http://localhost:11434/api/tags` and `ollama list`.
+6. **Assistant**: check Maven console for `Tomcat started on port 8090`.
+7. **Postman**: POST order → GET order → GET assistant with the **same UUID**.
+
+A `COPY target/*.jar` / `lstat /target` error is a build-context/JAR issue, **not** a database-volume issue; do not delete volumes to fix it. If port 8090 is occupied, check `lsof -nP -iTCP:8090 -sTCP:LISTEN` before starting another assistant. Avoid restarting Ollama mid-inference.
+
+### 8. Before committing
+
+```bash
+mvn clean verify
+git status -sb
+git diff --check
+git diff -- README_IT.md README_ENG.md
+```
+
+`mvn clean verify` runs configured checks/tests. Prefer it to `-DskipTests` before publishing code. This does not imply all desired automated tests exist.
+
+### 9. Glossary
+
+- **Saga orchestration**: central coordination of distributed business steps and compensations.
+- **Compensation**: business action that attempts to undo an earlier completed step.
+- **Transactional Outbox**: transactional event storage before asynchronous publishing.
+- **At-least-once**: messages may be delivered multiple times; consumers must deduplicate.
+- **Tool calling**: an LLM requests a controlled application function.
+- **Ollama**: local model runtime; Spring AI is the Java integration framework.
+- **Readiness**: a service can actually answer requests, beyond a container being Up.
 
 
 ## Complete operations checklist: startup, verification, troubleshooting
@@ -261,7 +444,7 @@ The model must appear in the list. `ollama serve` resta in primo piano; se Ollam
 ### 3. Build and Docker Compose
 
 ```bash
-mvn clean package
+mvn clean package -DskipTests
 docker compose config                # valida il file Compose
 docker compose up --build -d
 docker compose ps
@@ -430,7 +613,7 @@ docker compose logs -f order-service
 docker compose down
 
 # Riavvio successivo
-docker compose up --build -d
+docker compose up -d
 ```
 
 **Only if you intend to delete persistent data:**
